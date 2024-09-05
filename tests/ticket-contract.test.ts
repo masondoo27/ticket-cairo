@@ -8,8 +8,10 @@ describe("Ticket contract", () => {
   let buyer: Account;
   let ticketContract: Contract;
   let paymentContract: Contract;
-  let ticketsPerLot = 10;
-  let ticketPrice = BigInt(0.001 * 1e18);
+  let ticketsPerLot: bigint = BigInt(0);
+  let ticketPrice: bigint = BigInt(0);
+  let discount5: bigint = BigInt(0);
+  let discount10: bigint = BigInt(0);
   beforeAll(async () => {
     buyer = new Account(
       provider,
@@ -29,6 +31,20 @@ describe("Ticket contract", () => {
         process.env.TICKET_ADDRESS!,
         provider
       ).typedv2(testAbi);
+
+      ticketsPerLot = await ticketContract.getTicketPerLot();
+      ticketsPerLot = BigInt(ticketsPerLot);
+      ticketPrice = await ticketContract.getTicketPrice();
+      ticketPrice = BigInt(ticketPrice);
+      discount5 = await ticketContract.getDiscount5();
+      discount5 = BigInt(discount5);
+      discount10 = await ticketContract.getDiscount10();
+      discount10 = BigInt(discount10);
+
+      console.log("ticketsPerLot: ", ticketsPerLot);
+      console.log("ticketPrice: ", ticketPrice);
+      console.log("discount5: ", discount5);
+      console.log("discount10: ", discount10);
     }
     {
       const { abi: testAbi } = await provider.getClassAt(
@@ -45,10 +61,30 @@ describe("Ticket contract", () => {
       ).typedv2(testAbi);
     }
   });
+  it("getCost should return the correct cost", async function () {
+    const cost = await ticketContract.getCost(1);
+    expect(cost).toEqual(ticketPrice * BigInt(ticketsPerLot));
+  });
+  it("discount5 should work", async function () {
+    const lot = 5;
+    const cost = await ticketContract.getCost(lot);
+    const expectCost = ticketPrice * BigInt(ticketsPerLot) * BigInt(lot);
+    expect(cost).toEqual(
+      expectCost - (expectCost * BigInt(discount5)) / BigInt(100)
+    );
+  });
+  it("discount10 should work", async function () {
+    const lot = 10;
+    const cost = await ticketContract.getCost(lot);
+    const expectCost = ticketPrice * BigInt(ticketsPerLot) * BigInt(lot);
+    expect(cost).toEqual(
+      expectCost - (expectCost * BigInt(discount10)) / BigInt(100)
+    );
+  });
   it("should allow users to purchase tickets", async function () {
-    const numberOfLotBuy = 1;
+    const numberOfLotBuy = BigInt(1);
     const numberOfTicketsToPurchase = ticketsPerLot * numberOfLotBuy;
-    const totalCost = ticketPrice * BigInt(numberOfLotBuy);
+    const totalCost = ticketPrice * BigInt(numberOfTicketsToPurchase);
 
     // Buyer Approve OpenMark payment token
     {
@@ -64,7 +100,7 @@ describe("Ticket contract", () => {
     {
       let buyerBeforeBalance = await paymentContract.balanceOf(buyer.address);
       ticketContract.connect(buyer);
-      let tx = await ticketContract.buyTickets(numberOfTicketsToPurchase);
+      let tx = await ticketContract.buyTickets(numberOfLotBuy);
       const txReceipt = await provider.waitForTransaction(tx.transaction_hash);
       if (txReceipt.isSuccess()) {
         console.log("Purchase Ticket Succeed!");
