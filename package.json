@@ -3,8 +3,10 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "jest",
-    "ts-node": "ts-node"
+    "test": "jest --detectOpenHandles",
+    "ts-node": "ts-node",
+    "declare-class": "starkli declare  target/dev/ticket1_TicketStarknet.contract_class.json --private-key=$STRK_PRIVATEKEY --account=./account.json ",
+    "fetch-account": "starkli account fetch"
   },
   "keywords": [],
   "author": "",

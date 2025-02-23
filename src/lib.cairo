@@ -12,7 +12,7 @@ pub trait ITicket<TContractState> {
     fn updateDiscount10(ref self: TContractState, newDiscount10: u128);
     fn updateTreasury(ref self: TContractState, newTreasury: ContractAddress);
 
-    fn buyTickets(ref self: TContractState, numberOfLotToBuy: u128);
+    fn buyTickets(ref self: TContractState, numberOfLotToBuy: u128, season: u128);
 
     fn getTokenDecimal(self: @TContractState) -> u128;
     fn getTokenAddress(self: @TContractState) -> ContractAddress;
@@ -28,6 +28,7 @@ pub struct TicketsPurchased {
     pub buyer: ContractAddress,
     pub numberOfTickets: u128,
     pub cost: u256,
+    pub season: u128,
 }
 
 #[starknet::contract]
@@ -133,7 +134,7 @@ mod TicketStarknet {
             let mut discount: u256 = 0;
             let discount5: u256 = self.discount5.read().into();
             let discount10: u256 = self.discount10.read().into();
-            
+
             if numberOfLotToBuy >= 10 {
                 discount = (discount10 * cost) / 100;
             } else if numberOfLotToBuy >= 5 {
@@ -142,7 +143,7 @@ mod TicketStarknet {
 
             return cost - discount;
         }
-        fn buyTickets(ref self: ContractState, numberOfLotToBuy: u128) {
+        fn buyTickets(ref self: ContractState, numberOfLotToBuy: u128, season: u128) {
             self.reentrancy_guard.start();
             let buyer = get_caller_address();
             let cost = self.getCost(numberOfLotToBuy).into();
@@ -153,7 +154,10 @@ mod TicketStarknet {
             self
                 .emit(
                     super::TicketsPurchased {
-                        buyer, numberOfTickets: numberOfLotToBuy * self.ticket_per_lot.read(), cost
+                        buyer,
+                        numberOfTickets: numberOfLotToBuy * self.ticket_per_lot.read(),
+                        cost,
+                        season
                     }
                 );
             self.reentrancy_guard.end();

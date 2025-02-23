@@ -60,7 +60,7 @@ describe("Ticket contract", () => {
         provider
       ).typedv2(testAbi);
     }
-  });
+  }, 60_000);
   it("getCost should return the correct cost", async function () {
     const cost = await ticketContract.getCost(1);
     expect(cost).toEqual(ticketPrice * BigInt(ticketsPerLot));
@@ -100,7 +100,7 @@ describe("Ticket contract", () => {
     {
       let buyerBeforeBalance = await paymentContract.balanceOf(buyer.address);
       ticketContract.connect(buyer);
-      let tx = await ticketContract.buyTickets(numberOfLotBuy);
+      let tx = await ticketContract.buyTickets(numberOfLotBuy, 1);
       const txReceipt = await provider.waitForTransaction(tx.transaction_hash);
       if (txReceipt.isSuccess()) {
         console.log("Purchase Ticket Succeed!");

@@ -6,8 +6,8 @@ const provider = new RpcProvider({ nodeUrl: process.env.RPC });
 async function updateConfig() {
   const owner = new Account(
     provider,
-    process.env.BUYER_ACCOUNT_ADDRESS!,
-    process.env.BUYER_ACCOUNT_PRIVATE_KEY!
+    process.env.OWNER_ADDRESS!,
+    process.env.OWNER_PK!
   );
   const { abi: testAbi } = await provider.getClassAt(
     process.env.TICKET_ADDRESS!
