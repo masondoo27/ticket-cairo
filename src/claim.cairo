@@ -5,7 +5,7 @@ pub trait IClaim<TContractState> {
     fn claim(
         ref self: TContractState,
         user: ContractAddress,
-        allocation: u256,
+        allocation: felt252,
         merkleProof: Span<felt252>,
     );
 
@@ -27,15 +27,13 @@ pub trait IClaim<TContractState> {
     fn getUserCount(self: @TContractState) -> u256;
 
     fn isValidClaim(
-        self: @TContractState, user: ContractAddress, allocation: u256, merkleProof: Span<felt252>,
+        self: @TContractState, user: ContractAddress, allocation: felt252, merkleProof: Span<felt252>,
     ) -> bool;
 }
 
 
 #[starknet::contract]
 mod ClaimStarknet {
-    use core::hash::HashStateTrait;
-    use core::hash::HashStateExTrait;
     use starknet::{ContractAddress, ClassHash, get_block_timestamp, get_contract_address};
     use openzeppelin::token::erc20::interface::{IERC20Dispatcher, IERC20DispatcherTrait};
     use openzeppelin::access::ownable::OwnableComponent;
@@ -43,7 +41,7 @@ mod ClaimStarknet {
     use openzeppelin::upgrades::UpgradeableComponent;
     use openzeppelin::upgrades::interface::IUpgradeable;
     use openzeppelin::merkle_tree::hashes::{PedersenCHasher, PoseidonCHasher};
-    use core::pedersen::{PedersenTrait, pedersen};
+    use core::pedersen::{pedersen};
     use openzeppelin::merkle_tree::merkle_proof::{verify};
     use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess, Map};
     // use starknet::{
@@ -122,10 +120,9 @@ mod ClaimStarknet {
     }
 
     fn verify_merkle_proof(
-        merkleRoot: felt252, merkleProof: Span<felt252>, minter: ContractAddress, amount: u256,
+        merkleRoot: felt252, merkleProof: Span<felt252>, minter: ContractAddress, amount: felt252,
     ) -> bool {
-        let hash_state = PedersenTrait::new(0);
-        let leaf_hash = pedersen(0, hash_state.update_with(minter).update_with(amount).finalize());
+        let leaf_hash = pedersen(minter.into(), amount.into());
         return verify::<PedersenCHasher>(merkleProof, merkleRoot, leaf_hash);
     }
 
@@ -134,7 +131,7 @@ mod ClaimStarknet {
         fn isValidClaim(
             self: @ContractState,
             user: ContractAddress,
-            allocation: u256,
+            allocation: felt252,
             merkleProof: Span<felt252>,
         ) -> bool {
             let merkleRoot = self.rootWhitelist.read();
@@ -160,7 +157,7 @@ mod ClaimStarknet {
         fn claim(
             ref self: ContractState,
             user: ContractAddress,
-            allocation: u256,
+            allocation: felt252,
             merkleProof: Span<felt252>,
         ) {
             // verifid startat
@@ -182,10 +179,10 @@ mod ClaimStarknet {
 
             self
                 ._payment_transfer_from(
-                    self.token_address.read(), self.treasury.read(), user, allocation,
+                    self.token_address.read(), self.treasury.read(), user, allocation.into(),
                 );
 
-            self.totalClaim.write(self.totalClaim.read() + allocation);
+            self.totalClaim.write(self.totalClaim.read() + allocation.into());
             self.userCount.write(self.userCount.read() + 1);
         }
 
