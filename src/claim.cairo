@@ -2,12 +2,7 @@ use starknet::ContractAddress;
 
 #[starknet::interface]
 pub trait IClaim<TContractState> {
-    fn claim(
-        ref self: TContractState,
-        user: ContractAddress,
-        allocation: felt252,
-        merkleProof: Span<felt252>,
-    );
+    fn claim(ref self: TContractState, allocation: u128, merkleProof: Span<felt252>);
 
     fn updateTokenAddress(ref self: TContractState, newTokenAddress: ContractAddress);
     fn updateTreasury(ref self: TContractState, newTreasury: ContractAddress);
@@ -27,27 +22,34 @@ pub trait IClaim<TContractState> {
     fn getUserCount(self: @TContractState) -> u256;
 
     fn isValidClaim(
-        self: @TContractState, user: ContractAddress, allocation: felt252, merkleProof: Span<felt252>,
+        self: @TContractState, user: ContractAddress, allocation: u128, merkleProof: Span<felt252>,
     ) -> bool;
 }
 
 
 #[starknet::contract]
 mod ClaimStarknet {
-    use starknet::{ContractAddress, ClassHash, get_block_timestamp, get_contract_address};
+    use starknet::{
+        ContractAddress, ClassHash, get_block_timestamp, get_contract_address, get_caller_address,
+    };
     use openzeppelin::token::erc20::interface::{IERC20Dispatcher, IERC20DispatcherTrait};
     use openzeppelin::access::ownable::OwnableComponent;
     use openzeppelin::security::ReentrancyGuardComponent;
     use openzeppelin::upgrades::UpgradeableComponent;
     use openzeppelin::upgrades::interface::IUpgradeable;
     use openzeppelin::merkle_tree::hashes::{PedersenCHasher, PoseidonCHasher};
-    use core::pedersen::{pedersen};
-    use openzeppelin::merkle_tree::merkle_proof::{verify};
+    use core::hash::{HashStateTrait, HashStateExTrait};
+    use core::pedersen::{PedersenTrait, pedersen};
+    use openzeppelin::merkle_tree::merkle_proof::{verify_pedersen};
     use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess, Map};
-    // use starknet::{
-    //     get_caller_address, get_contract_address, get_tx_info, ContractAddress,
-    //     get_block_timestamp,
-    // };
+
+
+    #[derive(Serde, Copy, Drop, Hash)]
+    pub(crate) struct Leaf {
+        pub address: ContractAddress,
+        pub amount: u128,
+    }
+
     /// Ownable
     component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
     /// Reentrancy
@@ -96,9 +98,10 @@ mod ClaimStarknet {
     }
 
     #[constructor]
-    fn constructor(ref self: ContractState, owner: ContractAddress) {
-        self.ownable.initializer(owner);
-        self.treasury.write(owner);
+    fn constructor(ref self: ContractState) {
+        let caller = get_caller_address();
+        self.ownable.initializer(caller);
+        self.treasury.write(caller);
         self.startAt.write(0);
         self.endAt.write(0);
         self.totalClaim.write(0);
@@ -119,11 +122,23 @@ mod ClaimStarknet {
         }
     }
 
+
     fn verify_merkle_proof(
-        merkleRoot: felt252, merkleProof: Span<felt252>, minter: ContractAddress, amount: felt252,
+        merkleRoot: felt252, proof: Span<felt252>, address: ContractAddress, value: u128,
     ) -> bool {
-        let leaf_hash = pedersen(minter.into(), amount.into());
-        return verify::<PedersenCHasher>(merkleProof, merkleRoot, leaf_hash);
+        // Leaves hashes and internal nodes hashes are computed differently
+        // to avoid second pre-image attacks.
+        let leaf_hash = _leaf_hash(address, value);
+        verify_pedersen(proof, merkleRoot, leaf_hash)
+    }
+
+    fn _leaf_hash(address: ContractAddress, value: u128) -> felt252 {
+        // Opinionated leaf hash function
+        let hash_state = PedersenTrait::new(0);
+        pedersen(
+            0,
+            hash_state.update_with(Leaf { address: address, amount: value }).update(2).finalize(),
+        )
     }
 
     #[abi(embed_v0)]
@@ -131,11 +146,15 @@ mod ClaimStarknet {
         fn isValidClaim(
             self: @ContractState,
             user: ContractAddress,
-            allocation: felt252,
+            allocation: u128,
             merkleProof: Span<felt252>,
         ) -> bool {
             let merkleRoot = self.rootWhitelist.read();
-            return verify_merkle_proof(merkleRoot, merkleProof, user, allocation);
+            assert!(
+                verify_merkle_proof(merkleRoot, merkleProof, user, allocation),
+                "Verifier: invalid proof",
+            );
+            return true;
         }
 
         fn withdraw(ref self: ContractState, amount: u256) {
@@ -154,32 +173,31 @@ mod ClaimStarknet {
             return self.token_address.read();
         }
 
-        fn claim(
-            ref self: ContractState,
-            user: ContractAddress,
-            allocation: felt252,
-            merkleProof: Span<felt252>,
-        ) {
+        fn claim(ref self: ContractState, allocation: u128, merkleProof: Span<felt252>) {
+            let user = get_caller_address();
             // verifid startat
             let startAt = self.startAt.read();
-            assert!(startAt != 0);
-            assert!(startAt <= get_block_timestamp().into());
+            assert!(startAt != 0, "StartAt is not set");
+            assert!(startAt <= get_block_timestamp().into(), "Claim: too early");
 
             // verify endat
             let endAt = self.endAt.read();
-            assert!(endAt != 0);
-            assert!(endAt >= get_block_timestamp().into());
+            assert!(endAt != 0, "EndAt is not set");
+            assert!(endAt >= get_block_timestamp().into(), "Claim: too late");
 
             let merkleRoot = self.rootWhitelist.read();
-            assert!(verify_merkle_proof(merkleRoot, merkleProof, user, allocation));
+            assert!(
+                verify_merkle_proof(merkleRoot, merkleProof, user, allocation),
+                "Verifier: invalid proof",
+            );
 
             let claimed = self.userClaimed.read(user);
-            assert!(!claimed);
+            assert!(!claimed, "Claim: already claimed");
             self.userClaimed.write(user, true);
 
             self
                 ._payment_transfer_from(
-                    self.token_address.read(), self.treasury.read(), user, allocation.into(),
+                    self.token_address.read(), get_contract_address(), user, allocation.into(),
                 );
 
             self.totalClaim.write(self.totalClaim.read() + allocation.into());
