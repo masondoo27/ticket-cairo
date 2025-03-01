@@ -10,8 +10,6 @@ pub trait IClaim<TContractState> {
     fn updateStartAt(ref self: TContractState, newStartAt: u256);
     fn updateEndAt(ref self: TContractState, newEndAt: u256);
 
-    fn withdraw(ref self: TContractState, amount: u256);
-
     fn getTokenAddress(self: @TContractState) -> ContractAddress;
     fn getTreasury(self: @TContractState) -> ContractAddress;
     fn getMerkleRoot(self: @TContractState) -> felt252;
@@ -29,9 +27,7 @@ pub trait IClaim<TContractState> {
 
 #[starknet::contract]
 mod ClaimStarknet {
-    use starknet::{
-        ContractAddress, ClassHash, get_block_timestamp, get_contract_address, get_caller_address,
-    };
+    use starknet::{ContractAddress, ClassHash, get_block_timestamp, get_caller_address};
     use openzeppelin::token::erc20::interface::{IERC20Dispatcher, IERC20DispatcherTrait};
     use openzeppelin::access::ownable::OwnableComponent;
     use openzeppelin::security::ReentrancyGuardComponent;
@@ -98,10 +94,9 @@ mod ClaimStarknet {
     }
 
     #[constructor]
-    fn constructor(ref self: ContractState) {
-        let caller = get_caller_address();
-        self.ownable.initializer(caller);
-        self.treasury.write(caller);
+    fn constructor(ref self: ContractState, owner: ContractAddress) {
+        self.ownable.initializer(owner);
+        self.treasury.write(owner);
         self.startAt.write(0);
         self.endAt.write(0);
         self.totalClaim.write(0);
@@ -157,13 +152,6 @@ mod ClaimStarknet {
             return true;
         }
 
-        fn withdraw(ref self: ContractState, amount: u256) {
-            self.ownable.assert_only_owner();
-            self
-                ._payment_transfer_from(
-                    self.token_address.read(), get_contract_address(), self.treasury.read(), amount,
-                );
-        }
 
         fn updateTokenAddress(ref self: ContractState, newTokenAddress: ContractAddress) {
             self.ownable.assert_only_owner();
@@ -197,7 +185,7 @@ mod ClaimStarknet {
 
             self
                 ._payment_transfer_from(
-                    self.token_address.read(), get_contract_address(), user, allocation.into(),
+                    self.token_address.read(), self.treasury.read(), user, allocation.into(),
                 );
 
             self.totalClaim.write(self.totalClaim.read() + allocation.into());
